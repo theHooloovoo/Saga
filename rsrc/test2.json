@@ -1,0 +1,29 @@
+{
+	"x": 800,
+	"y": 400,
+	"padding": 10,
+	"color_schemes": {},
+	"data": {
+		"name": null,
+		"offset": 0.0,
+		"y_scale": 1.0,
+		"type": "List",
+		"next": [
+			{
+				"name": null,
+				"offset": 0.0,
+				"y_scale": 1.0,
+				"type": "Event",
+				"next": {
+					"name": "Event 1",
+					"descriptions": [
+						"Thing 1",
+						"Something else...",
+						"Oh! Yeah!"
+					],
+					"datetime": "01/12/2000 0:0"
+				}
+			}
+		]
+	}
+}

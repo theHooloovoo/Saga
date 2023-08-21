@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use clap::{arg, command, value_parser, ArgAction, ArgMatches, Command, Parser};
 use serde::{Serialize, Deserialize};
+use serde_json::Error as JsonError;
 use svg::{
     Document,
     Node as SvgNode,
@@ -27,6 +28,7 @@ pub type MainResult = Result<(), MainError>;
 pub enum MainError {
     // TODO: Add file path to this.
     NotASagaDoc(serde_json::Error),
+    SerializeFail(JsonError),
     FileIO(std::io::Error),
     IntoOSString(std::ffi::OsString),
     BadPathParse(ParseIntError),
@@ -111,10 +113,19 @@ fn arg_print(sub_matches: &ArgMatches) -> MainResult {
 }
 
 fn arg_catenate(sub_matches: &ArgMatches) -> MainResult {
-    let saga_docs = open_saga_docs(sub_matches, "FILE")?;
-    let dest = sub_matches.get_one::<String>("DEST")
-        .map(|s|open_file(s))
-        .expect("Clap guarantees that this should be here.")
+    println!("MODE: CATENATE");
+    // Get the file, parse the, then catenate them down.
+    let saga_docs = open_saga_docs(sub_matches, "FILE")?
+        .into_iter()
+        .map(|(_,doc)|doc)
+        .collect();
+    let doc = SagaDoc::catenate(saga_docs);
+    let contents = serde_json::to_string(&doc)
+        .map_err(|e|MainError::SerializeFail(e))?;
+    // Get the filepath to write.
+    let dest: &str = sub_matches.get_one::<String>("DEST")
+        .expect("Clap guarantees that this should be here.");
+    std::fs::write(dest, &contents)
         .map_err(|e|MainError::FileIO(e))?;
     Ok(())
 }
@@ -132,9 +143,11 @@ fn arg_render(sub_matches: &ArgMatches) -> MainResult {
 }
 
 fn open_saga_docs<'a>(sub_matches: &'a ArgMatches, tag: &str) -> Result<Vec<(&'a str, SagaDoc)>, MainError> {
+    // TODO rewrite this such that the Err variant returns the error AND the file path that caused it.
     Ok(sub_matches.get_many::<String>(tag)
         .expect("Flying on a prayer.")
         .map(|fp|(fp, open_file(fp)))
+        .inspect(|(fp,_)|{println!("> {}", fp);})
         .map(|(fp,res)|res.map(|f|(fp,f)))  // Wrap fp inside the Result, so we can call try on it.
         .try_collect::<Vec<_>>()
         .map_err(|e|MainError::FileIO(e))?

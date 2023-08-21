@@ -1,0 +1,269 @@
+{
+	"x": 2400,
+	"y": 500,
+	"padding": 10,
+	"color_schemes": {},
+	"data": {
+		"name": "Napoleonic Wars",
+		"offset": 0.20,
+		"y_scale": 1.0,
+		"type": "List",
+		"line": 5,
+		"next": [
+			{
+				"name":  "War of the First Coalition",
+				"offset": 0.0,
+				"y_scale": 1.0,
+				"type": "List",
+				"next": [
+					{
+						"name": null,
+						"offset": 0.0,
+						"y_scale": 1.0,
+						"type": "Event",
+						"next": {
+							"name": "War of the First Coalition",
+							"descriptions": [],
+							"datetime": "20/04/1792 0:0 - 17/10/1797 0:0"
+						}
+					},
+					{
+						"name": "Battles",
+						"offset": -0.05,
+						"y_scale": 1.0,
+						"type": "List",
+						"next": [
+							{
+								"name": null,
+								"offset": 0.0,
+								"y_scale": 1.0,
+								"type": "Event",
+								"next": {
+									"name": "Battle of Valmy",
+									"descriptions": [
+										"The War of the First Coalition (French: Guerre de la Première Coalition) was a set of wars that several European powers fought between 1792 and 1797 initially against the constitutional Kingdom of France and then the French Republic that succeeded it. They were only loosely allied and fought without much apparent coordination or agreement; each power had its eye on a different part of France it wanted to appropriate after a French defeat, which never occurred."
+									],
+									"datetime": "20/9/1792 0:0"
+								}
+							},
+							{
+								"name": null,
+								"offset": 0.0,
+								"y_scale": 1.0,
+								"type": "Event",
+								"next": {
+									"name": "Battle of Fleurus",
+									"descriptions": [],
+									"datetime": "26/7/1794 0:0"
+								}
+							}
+						]
+					}
+				]
+			},
+			{
+				"name": "War of the Second Coalition",
+				"offset": 0.0,
+				"y_scale": 1.0,
+				"type": "List",
+				"next": [
+					{
+						"name": null,
+						"offset": 0.0,
+						"y_scale": 1.0,
+						"type": "Event",
+						"next": {
+							"name": "War of the Second Coalition",
+							"descriptions": [],
+							"datetime": "29/11/1798 0:0 - 25/3/1802 0:0"
+						}
+					},
+					{
+						"name": "Battles",
+						"offset": 0.0,
+						"y_scale": 1.0,
+						"type": "List",
+						"next": []
+					}
+				]
+			},
+			{
+				"name": "War of the Thid Coalition",
+				"offset": 0.0,
+				"y_scale": 1.0,
+				"type": "List",
+				"next": [
+					{
+						"name": null,
+						"offset": 0.0,
+						"y_scale": 1.0,
+						"type": "Event",
+						"next": {
+							"name": "War of the Third Coalition",
+							"descriptions": [],
+							"datetime": "11/4/1805 0:0 - 18/6/1806 0:0"
+						}
+					},
+					{
+						"name": "Battles",
+						"offset": -0.05,
+						"y_scale": 1.0,
+						"type": "List",
+						"next": [
+							{
+								"name": null,
+								"offset": 0.0,
+								"y_scale": 1.0,
+								"type": "Event",
+								"next": {
+									"name": "Battle of Trafalgar",
+									"descriptions": [],
+									"datetime": "21/10/1805 0:0"
+								}
+							},
+							{
+								"name": null,
+								"offset": 0.0,
+								"y_scale": 1.0,
+								"type": "Event",
+								"next": {
+									"name": "Battle of Austerlitz",
+									"descriptions": [],
+									"datetime": "2/12/1805 0:0"
+								}
+							}
+						]
+					}
+				]
+			},
+			{
+				"name": "War of the Fourth Coalition",
+				"offset": 0.0,
+				"y_scale": 1.0,
+				"type": "List",
+				"next": [
+					{
+						"name": null,
+						"offset": 0.0,
+						"y_scale": 1.0,
+						"type": "Event",
+						"next": {
+							"name": "War of the Fourth Coalition",
+							"descriptions": [],
+							"datetime": "9/10/1806 0:0 - 9/6/1807 0:0"
+						}
+					},
+					{
+						"name": "Battles",
+						"offset": -0.05,
+						"y_scale": 1.0,
+						"type": "List",
+						"next": [
+							{
+								"name": null,
+								"offset": 0.0,
+								"y_scale": 1.0,
+								"type": "Event",
+								"next": {
+									"name": "Twin Battles of Jena & Auerstedt",
+									"descriptions": [],
+									"datetime": "21/10/1805 0:0"
+								}
+							}
+						]
+					}
+				]
+			},
+			{
+				"name": "War of the Fifth Coalition",
+				"offset": 0.0,
+				"y_scale": 1.0,
+				"type": "List",
+				"next": [
+					{
+						"name": null,
+						"offset": 0.0,
+						"y_scale": 1.0,
+						"type": "Event",
+						"next": {
+							"name": "War of the Fifth Coalition",
+							"descriptions": [],
+							"datetime": "10/4/1809 0:0 - 14/10/1809 0:0"
+						}
+					},
+					{
+						"name": "Battles",
+						"offset": 0.0,
+						"y_scale": 1.0,
+						"type": "List",
+						"next": []
+					}
+				]
+			},
+			{
+				"name": "War of the Sixth Coalition",
+				"offset": 0.0,
+				"y_scale": 1.0,
+				"type": "List",
+				"next": [
+					{
+						"name": null,
+						"offset": 0.0,
+						"y_scale": 1.0,
+						"type": "Event",
+						"next": {
+							"name": "War of the Sixth Coalition",
+							"descriptions": [],
+							"datetime": "3/3/1813 0:0 - 30/5/1814 0:0"
+						}
+					},
+					{
+						"name": "Battles",
+						"offset": 0.0,
+						"y_scale": 1.0,
+						"type": "List",
+						"next": []
+					}
+				]
+			},
+			{
+				"name": "War of the Seventh Coalition",
+				"offset": 0.0,
+				"y_scale": 1.0,
+				"type": "List",
+				"next": [
+					{
+						"name": null,
+						"offset": 0.0,
+						"y_scale": 1.0,
+						"type": "Event",
+						"next": {
+							"name": "War of the Seventh Coalition",
+							"descriptions": [],
+							"datetime": "20/3/1815 0:0 - 8/6/1815 0:0"
+						}
+					},
+					{
+						"name": "Battles",
+						"offset": -0.05,
+						"y_scale": 1.0,
+						"type": "List",
+						"next": [
+							{
+								"name": null,
+								"offset": 0.0,
+								"y_scale": 1.0,
+								"type": "Event",
+								"next": {
+									"name": "Battle of Waterloo",
+									"descriptions": [],
+									"datetime": "18/6/1815 0:0"
+								}
+							}
+						]
+					}
+				]
+			}
+		]
+	}
+}

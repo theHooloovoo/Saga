@@ -1,0 +1,43 @@
+{
+	"x": 800,
+	"y": 400,
+	"padding": 10,
+	"color_schemes": {},
+	"data": {
+		"name": "Some Napoleonic Wars",
+		"offset": 0.0,
+		"y_scale": 1.0,
+		"line": 5,
+		"type": "List",
+		"next": [
+			{
+				"name": null,
+				"offset": 0.0,
+				"y_scale": 1.0,
+				"type": "Event",
+				"next": {
+					"name": "War of the First Coalition",
+					"descriptions": [
+						"The War of the First Coalition (French: Guerre de la Première Coalition) was a set of wars that several European powers fought between 1792 and 1797 initially against the constitutional Kingdom of France and then the French Republic that succeeded it. They were only loosely allied and fought without much apparent coordination or agreement; each power had its eye on a different part of France it wanted to appropriate after a French defeat, which never occurred."
+					],
+					"datetime": "20/04/1792 0:0 - 17/10/1797 0:0"
+				}
+			},
+			{
+				"name": null,
+				"offset": 0.0,
+				"y_scale": 1.0,
+				"type": "Event",
+				"next": {
+					"name": "War of the Second Coalition",
+					"descriptions": [
+						"Thing 1",
+						"Something else...",
+						"Oh! Yeah!"
+					],
+					"datetime": "01/12/2000 0:0"
+				}
+			}
+		]
+	}
+}

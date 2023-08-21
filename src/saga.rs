@@ -43,6 +43,17 @@ pub struct SagaDoc {
 }
 
 impl SagaDoc {
+
+    fn blank() -> SagaDoc {
+        SagaDoc {
+            x: 0.0,
+            y: 0.0,
+            padding: 0.0,
+            color_schemes: HashMap::new(),
+            data:   Node::from_vec(vec![]),
+        }
+    }
+
     pub fn get_data(&self) -> &Node { &self.data }
 
     pub fn get_data_mut(&mut self) -> &mut Node { &mut self.data }
@@ -124,12 +135,16 @@ impl SagaDoc {
     }
 
     pub fn catenate(list: Vec<SagaDoc>) -> SagaDoc {
-        let res: (f64, f64) = list.iter()
-            .map(|saga|(saga.x, saga.y))
-            .fold((f64::MAX, f64::MIN), |acc, this|{
-                ( acc.0.min(this.0), acc.1.max(this.1),)
-            });
-        todo!();
+        let mut doc = SagaDoc::blank();
+        list.into_iter().for_each(|mut item|{
+            doc.x = doc.x.max(item.x);
+            doc.y = doc.y.max(item.y);
+            doc.padding = doc.padding.max(item.padding);
+            item.color_schemes
+                .drain()
+                .for_each(|(k,v)|{doc.color_schemes.insert(k,v);});
+        });
+        doc
     }
 
 }

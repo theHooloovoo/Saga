@@ -1,8 +1,10 @@
 
-use std::collections::HashMap;
-use std::io::{
-    Error as IoError,
-    Write,
+use std::{
+    collections::HashMap,
+    io::{
+        Error as IoError,
+        Write,
+    },
 };
 
 pub type DtParseError = chrono::format::ParseError;
@@ -44,7 +46,7 @@ pub struct SagaDoc {
 
 impl SagaDoc {
 
-    fn blank() -> SagaDoc {
+    pub fn blank() -> SagaDoc {
         SagaDoc {
             x: 0.0,
             y: 0.0,
@@ -56,17 +58,16 @@ impl SagaDoc {
 
     pub fn get_data(&self) -> &Node { &self.data }
 
-    pub fn get_data_mut(&mut self) -> &mut Node { &mut self.data }
-
     pub fn draw(&self) -> Document {
         // Bail if we have nothing.
         if self.data.is_empty() { return Document::new(); }
         // Compose then zip iterators.
         let range = self.data.range();
         if range.1 - range.0 == 0 { return Document::new(); }
+        let slide_y: f64 = 0.1 * self.y;
         let events = self.data.iter();
         let depths = self.data.depth();
-        let scales = self.data.transform_iter(0f64, 1f64);
+        let scales = self.data.transform_iter(0.0, 1f64);
         // Construct SVG document, we'll be pushing drawing commands into it.
         let mut document = Document::new()
             .set("viewbox", (0,0,self.x,self.y))
@@ -84,46 +85,58 @@ impl SagaDoc {
             let data = match x_end {
                 Some(some_end) => { // If span of time...
                     Data::new()
-                        .move_to((x_start,  y))
-                        .line_to((some_end, y))
-                        .line_to((some_end, y+height))
-                        .line_to((x_start,  y+height))
+                        .move_to((x_start,  y + slide_y))
+                        .line_to((some_end, y + slide_y))
+                        .line_to((some_end, y + slide_y + height))
+                        .line_to((x_start,  y + slide_y + height))
                         .close()
                 },
                 None => {   // If single point in time...
                     Data::new()
-                        .move_to((x_start,  y))
-                        .line_to((x_start,  y+height))
+                        .move_to((x_start, y + slide_y))
+                        .line_to((x_start, y + slide_y + height))
                         .close()
                 },
             };
             let path = SvgPath::new()
                 .set("fill", "#C3B2A4")
                 .set("stroke", "#2e3d50")
-                .set("stroke-width",2)
+                .set("stroke-width", 2)
                 .set("d", data);
             document.append(path);
         }
+        self.paint_lines(&mut document, &range, slide_y);
         document
-        // println!("Looking at {}!", file_path);
-        /*
-        match svg::save(file_path, &document) {
-            Ok(_) => println!("  > Wrote {} successfully.", file_path),
-            Err(e) => println!("  > Err! failed to write {}. {:?}", file_path, e),
-        }
-        */
+    }
+
+    fn paint_lines(&self, doc: &mut Document, range: &(i64, i64), slide: f64) {
+        for line in self.data.lines(range).iter() {
+            println!("> Line.y: {}", line.y);
+            let data = Data::new()
+                .move_to((line.start * self.x, line.y * self.y + slide))
+                .line_to((line.end   * self.x, line.y * self.y + slide))
+                .close();
+            let path = SvgPath::new()
+                .set("fill", "#C3B2A4")
+                .set("stroke", "#000000")
+                .set("stroke-width",5)
+                .set("d", data);
+            doc.append(path);
+        }        
     }
 
     pub fn add_event(&mut self, query: &str) -> Result<(), Bogus> {
         let path = parse_to_int_path(query)
             .map_err(|e|Bogus::PathParse(e))?;
-        let mut selected = self.data.find_mut(&path[..])
+        let selected = self.data.find_mut(&path[..])
             .map_err(|e|Bogus::PathFind(e))?;
+        // Begin taking user data.
         let name = get_user("Name")
             .map_err(|e|Bogus::IoError(e))?;
-        let date = get_user("Date")
-            .map_err(|e|Bogus::IoError(e))?
-            .parse::<Dates>()
+        let date_input: String = get_user("Date")
+            .map_err(|e|Bogus::IoError(e))?;
+        println!("[{}]", date_input);
+        let date = date_input.parse::<Dates>()
             .map_err(|e|Bogus::DtParse(e))?;
         let mut event = Event::new(&name, date);
         // Get desc's for as long as the user is willing to give them.
@@ -155,7 +168,7 @@ pub fn get_user(prompt: &str) -> std::io::Result<String> {
     std::io::stdout().flush()?;     // Ensure we print before we read stdin.
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)?;
-    Ok(input)
+    Ok(input.trim_end().to_string())
 }
 
 /// Asks yes/no question to user:

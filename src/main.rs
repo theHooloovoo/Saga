@@ -3,27 +3,21 @@
 
 // Maybe call this crate SAGA?
 
-use std::collections::HashMap;
-use std::num::ParseIntError;
-use std::path::PathBuf;
-
-use clap::{arg, command, value_parser, ArgAction, ArgMatches, Command, Parser};
-use serde::{Serialize, Deserialize};
-use serde_json::Error as JsonError;
-use svg::{
-    Document,
-    Node as SvgNode,
-    node::element::{path::Data,Path as SvgPath}
+use std::{
+    num::ParseIntError,
+    path::PathBuf,
 };
 
-mod events;
-use events::{Dates, DtParseError, PathFail, Node};
-mod saga;
-use saga::{parse_to_int_path,SagaDoc};
+use clap::{arg, command, ArgMatches, Command};
+use serde_json::Error as JsonError;
 
-use saga::ask_user;
+mod events;
+use events::{Dates, DtParseError, PathFail};
+mod saga;
+use saga::SagaDoc;
 
 pub type MainResult = Result<(), MainError>;
+
 #[derive(Debug)]
 pub enum MainError {
     // TODO: Add file path to this.
@@ -40,13 +34,12 @@ fn main() -> MainResult {
     let arg_parser = build_arg_parser();
     let matches = arg_parser.get_matches();
     match matches.subcommand() {
+        Some(("new",   sub_matches))  => arg_new(sub_matches),
         Some(("add",   sub_matches))  => arg_add(sub_matches),
         Some(("print", sub_matches))  => arg_print(sub_matches),
         Some(("cat", sub_matches))    => arg_catenate(sub_matches),
         Some(("render", sub_matches)) => arg_render(sub_matches),
-        _ => {
-            todo!();
-        },
+        _ => { unreachable!(); },
     }
 }
 
@@ -54,6 +47,11 @@ fn build_arg_parser() -> Command {
     command!()
         .subcommand_required(true)
         .arg_required_else_help(true)
+        .subcommand(
+            Command::new("new")
+                .about("Create a new Saga document, saved at the given FILE")
+                .arg(arg!(<FILE>)),
+        )
         .subcommand(
             Command::new("add")
                 .about("Adds and event to the given file at the listed location.")
@@ -78,6 +76,17 @@ fn build_arg_parser() -> Command {
         )
 }
 
+fn arg_new(sub_matches: &ArgMatches) -> MainResult {
+    let fp: &str = sub_matches.get_one::<String>("FILE")
+        .expect("Clap guarantees that this should be here.");
+    let saga: SagaDoc = SagaDoc::blank();
+    let contents = serde_json::to_string(&saga)
+        .map_err(|e|MainError::SerializeFail(e))?;
+    std::fs::write(fp, contents)
+        .map_err(|e|MainError::FileIO(e))?;
+    Ok(())
+}
+
 fn arg_add(sub_matches: &ArgMatches) -> MainResult {
     // Extract the raw data.
     let query: &str = sub_matches.get_one::<String>("INT_LIST")
@@ -85,12 +94,17 @@ fn arg_add(sub_matches: &ArgMatches) -> MainResult {
     let fp: &str = sub_matches.get_one::<String>("FILE")
         .expect("Clap guarantees that this should be here.");
     // Wrangle it into the correct form. 
-    let contents = open_file(fp).map_err(|e|MainError::FileIO(e))?;
+    let mut contents = open_file(fp).map_err(|e|MainError::FileIO(e))?;
     let mut saga: SagaDoc = serde_json::from_str(&contents)
         .map_err(|e|MainError::NotASagaDoc(e))?;
     // Do our editting.
     saga.add_event(&query)?;
     // Then write the changes to the disk.
+    contents.clear();
+    contents = serde_json::to_string(&saga)
+        .map_err(|e|MainError::SerializeFail(e))?;
+    std::fs::write(fp, contents)
+        .map_err(|e|MainError::FileIO(e))?;
     Ok(())
 }
 
@@ -101,19 +115,20 @@ fn arg_print(sub_matches: &ArgMatches) -> MainResult {
         let node = parsed_doc.get_data();
         let range = node.range();
         if !node.is_empty() { println!("[{:<12}]", Dates::from(range)); }
-        node.iter().zip(node.depth()).for_each(|(event, d)|{
+        node.iter().zip(node.depth()).for_each(|(event, depth)|{
+            let n: usize = depth.try_into().unwrap();
+            let d = std::iter::once("  ").cycle().take(n).collect::<String>();
             let loc_str = match event.location(range) {
                 (a,None) => format!("[{:.2}]", a),
                 (a,Some(b)) => format!("[{:.2}, {:.2}]", a, b),
             };
-            println!("  - {:<2} {:<12} {:<35} {}", d, loc_str, event.date_string(), event.name());
+            println!("{}- {:<35} {:<12} {}", d, event.date_string(), loc_str, event.name());
         });
     });
     Ok(())
 }
 
 fn arg_catenate(sub_matches: &ArgMatches) -> MainResult {
-    println!("MODE: CATENATE");
     // Get the file, parse the, then catenate them down.
     let saga_docs = open_saga_docs(sub_matches, "FILE")?
         .into_iter()
@@ -135,9 +150,9 @@ fn arg_render(sub_matches: &ArgMatches) -> MainResult {
         let svg = saga.draw();
         let mut fp_svg = PathBuf::from(fp);
         fp_svg.set_extension("svg");
-        println!("Looking at {:?}!", fp_svg);
-        svg::save(fp_svg, &svg)
+        svg::save(&fp_svg, &svg)
             .map_err(|e|MainError::FileIO(e))?;
+        println!("Wrote {:?} successfully.", &fp_svg);
     }
     Ok(())
 }
@@ -147,7 +162,6 @@ fn open_saga_docs<'a>(sub_matches: &'a ArgMatches, tag: &str) -> Result<Vec<(&'a
     Ok(sub_matches.get_many::<String>(tag)
         .expect("Flying on a prayer.")
         .map(|fp|(fp, open_file(fp)))
-        .inspect(|(fp,_)|{println!("> {}", fp);})
         .map(|(fp,res)|res.map(|f|(fp,f)))  // Wrap fp inside the Result, so we can call try on it.
         .try_collect::<Vec<_>>()
         .map_err(|e|MainError::FileIO(e))?

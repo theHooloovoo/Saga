@@ -1,14 +1,1 @@
-{
-	"x": 800,
-	"y": 400,
-	"padding": 10,
-	"color_schemes": {},
-	"data": {
-		"name": null,
-		"offset": 0.0,
-		"y_scale": 1.0,
-		"type": "List",
-		"next": [
-		]
-	}
-}
+{"x":800.0,"y":400.0,"padding":10.0,"color_schemes":{},"data":{"type":"List","next":[{"type":"Event","next":{"name":"asdf","descriptions":["This is a description."],"datetime":"01/01/1990 00:00"},"name":null,"style_override":null,"color_override":null,"offset":0.0,"y_scale":1.0,"line":null}],"name":null,"style_override":null,"color_override":null,"offset":0.0,"y_scale":1.0,"line":null}}

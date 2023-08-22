@@ -53,15 +53,15 @@ pub struct DateParseError {
 }
 
 pub struct Line {
-    start: f64,
-    end: f64,
-    interval: Option<f64>,
+    pub start: f64,
+    pub end: f64,
+    pub interval: Option<f64>,
+    pub y: f64,
 }
-
-pub type NodePath<'a> = &'a [usize];
 
 /// Created when following a Node down a path fails.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct PathFail {
     path: Vec<usize>,
     at: usize,
@@ -177,15 +177,21 @@ impl Node {
             .fold(max_min,|range,dt|dt.expand_range(range))
     }
 
-    pub fn lines(&self, range: (i64, i64)) -> Vec<Line> {
-        let iter: Vec<Line> = self.iter_nodes().map(|node|{
-            let value: Option<Line> = match (node.location(range), node.line) {
-                (Some((start,end)), Some(opt_n)) => Some(Line{start:start,end:end,interval:opt_n}),
+    pub fn lines(&self, grand_range: &(i64, i64)) -> Vec<Line> {
+        let iter = self.iter_nodes();
+        let iter_trans = self.transform_iter(0.0, 1.0);
+        let iter_depth = self.depth();
+        iter.zip(iter_trans).zip(iter_depth).map(|((node,(offset,scale)),depth)|{
+            let y = offset * scale * depth as f64;
+            match (node.line, node.location(*grand_range)) {
+                (Some(int), Some((a,b))) => {
+                    Some(Line { start:a, end:b, interval:int, y:y})
+                },
                 _ => None,
-            };
-            value
-        }).filter_map(|value|value).collect();
-        iter
+            }
+        })  .filter(|opt|opt.is_some()) // Drop all Nones...
+            .map(|opt|opt.unwrap())     // ...and retain only Ok's.
+            .collect::<Vec<_>>()
     }
 
     /// Returns the location of this Node's time range.
@@ -197,8 +203,8 @@ impl Node {
             _ => {
                 let (a,b) = (range.0 as f64, range.1 as f64);
                 Some((
-                    start as f64 - a / width,
-                    start as f64 - b / width,
+                    (a - start as f64) / width,
+                    (b - start as f64) / width,
                 ))
             },
         }
@@ -350,17 +356,20 @@ impl FromStr for Dates {
     }
 }
 
-impl Line {
-    /// Getter for the (start,end) fields of this struct.
-    pub fn bounds(&self) -> (f64, f64) { (self.start, self.end) }
-
-    /// Getter for the interval field of this struct.
-    pub fn interval(&self) -> Option<f64> { self.interval }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::events::{Dt, Event, Node};
+    use crate::events::{Dates,Dt, Event, Node};
+
+    #[test]
+    fn test_date_parsing() {
+        let ok_tests = [
+            "01/01/1990 0:0",
+            "1/1/1990 0:0",
+        ];
+        for query in ok_tests.iter() {
+            assert!(query.parse::<Dates>().is_ok());
+        }
+    }
 
     #[test]
     fn test_node_querying() {

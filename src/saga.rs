@@ -5,22 +5,23 @@ use std::{
         Error as IoError,
         Write,
     },
+    num::ParseIntError,
 };
 
 pub type DtParseError = chrono::format::ParseError;
 use serde::{Serialize, Deserialize};
 use svg::{
-    Document,
-    Node as SvgNode,
+    Document, Node as SvgNode,
     node::element::{path::Data,Path as SvgPath}
 };
 
-use super::events::{Dates, Event, PathFail, Node};
+use super::events::{Dates, Event, PathFail, Node, Query};
 
 /// Temp error type.
-pub enum Bogus {
+pub enum SagaDocError {
     PathParse(ParseIntError),
     PathFind(PathFail),
+    AddToEvent,
     DtParse(DtParseError),
     IoError(IoError),
 }
@@ -57,6 +58,8 @@ impl SagaDoc {
     }
 
     pub fn get_data(&self) -> &Node { &self.data }
+
+    pub fn get_data_mut(&mut self) -> &mut Node { &mut self.data }
 
     pub fn draw(&self) -> Document {
         // Bail if we have nothing.
@@ -125,31 +128,33 @@ impl SagaDoc {
         }        
     }
 
-    pub fn add_event(&mut self, query: &str) -> Result<(), Bogus> {
-        let path = parse_to_int_path(query)
-            .map_err(|e|Bogus::PathParse(e))?;
-        let selected = self.data.find_mut(&path[..])
-            .map_err(|e|Bogus::PathFind(e))?;
-        // Begin taking user data.
-        let name = get_user("Name")
-            .map_err(|e|Bogus::IoError(e))?;
-        let date_input: String = get_user("Date")
-            .map_err(|e|Bogus::IoError(e))?;
-        println!("[{}]", date_input);
-        let date = date_input.parse::<Dates>()
-            .map_err(|e|Bogus::DtParse(e))?;
-        let mut event = Event::new(&name, date);
-        // Get desc's for as long as the user is willing to give them.
-        while let Ok(Some(input)) = ask_user("Description [Y/n]") {
-            event.with_desc(&input);
+    /// Interactively build an event and place it at the requested location.
+    pub fn add_event(&mut self, query: &str) -> Result<(), SagaDocError> {
+        let path = parse_to_int_path(query)?;
+        match self.data.query(&path[..])? {
+            Query::Node(node) => {
+                let name = get_user("Name")?;
+                let date_input: String = get_user("Date")?;
+                println!("[{}]", date_input);
+                let date = date_input.parse::<Dates>()?;
+                let mut event = Event::new(&name, date);
+                // Get desc's for as long as the user is willing to give them.
+                while let Ok(Some(input)) = ask_user("Description [Y/n]") {
+                    event.with_desc(&input);
+                }
+                node.push_event(event);
+                Ok(())
+            },
+            Query::Event(_) => Err(SagaDocError::AddToEvent),
         }
-        selected.push_event(event);
-        Ok(())
     }
 
+    /// Creates a new SagaDoc who's value is a list of the values of each
+    /// SagaDoc in the given vector.
     pub fn catenate(list: Vec<SagaDoc>) -> SagaDoc {
         let mut doc = SagaDoc::blank();
         list.into_iter().for_each(|mut item|{
+            // Build up new doc data.
             doc.x = doc.x.max(item.x);
             doc.y = doc.y.max(item.y);
             doc.padding = doc.padding.max(item.padding);
@@ -160,14 +165,20 @@ impl SagaDoc {
         doc
     }
 
+    pub fn print(&self, verbose: bool) -> String {
+        self.data.print(0_usize, verbose)
+    }
+
 }
 
 /// Takes user's input after printing a prompt.
-pub fn get_user(prompt: &str) -> std::io::Result<String> {
+pub fn get_user(prompt: &str) -> Result<String, SagaDocError> {
     print!("{} > ", prompt);
-    std::io::stdout().flush()?;     // Ensure we print before we read stdin.
+    std::io::stdout().flush()     // Ensure we print before we read stdin.
+        .map_err(|e|SagaDocError::IoError(e))?;
     let mut input = String::new();
-    std::io::stdin().read_line(&mut input)?;
+    std::io::stdin().read_line(&mut input)
+        .map_err(|e|SagaDocError::IoError(e))?;
     Ok(input.trim_end().to_string())
 }
 
@@ -176,42 +187,38 @@ pub fn get_user(prompt: &str) -> std::io::Result<String> {
 ///     to give a follow up answer, returning Ok(Some(_)).
 ///   - Answers beginning with anything else returns Ok(None).
 ///   - Returns Err(_) if an Io error occured.
-pub fn ask_user(prompt: &str) -> std::io::Result<Option<String>> {
+pub fn ask_user(prompt: &str) -> Result<Option<String>, SagaDocError> {
     print!("{} > ", prompt);
-    std::io::stdout().flush()?;     // Ensure we print before we read stdin.
+    std::io::stdout().flush()     // Ensure we print before we read stdin.
+        .map_err(|e|SagaDocError::IoError(e))?;
     let mut input = String::new();
-    std::io::stdin().read_line(&mut input)?;
+    std::io::stdin().read_line(&mut input)
+        .map_err(|e|SagaDocError::IoError(e))?;
     if input.starts_with(&['y', 'Y']) == false { return Ok(None); } // Easy return.
     get_user("").map(|ok|Some(ok))  // Functional Composition! Kinda...     // TODO: Test that this works as intended.
-    /*
-    print!("    > ");
-    std::io::stdout().flush()?;     // Ensure we print before we read stdin.
-    input.clear();                  // Reuse input.
-    std::io::stdin().read_line(&mut input)?;
-    Ok(Some(input))
-    */
 }
 
-impl From<Bogus> for super::MainError {
-    fn from(error: Bogus) -> Self {
+impl From<SagaDocError> for super::MainError {
+    fn from(error: SagaDocError) -> Self {
         use super::MainError;
         match error {
-            Bogus::PathParse(e) => MainError::BadPathParse(e),
-            Bogus::PathFind(e)  => MainError::NodeNotFound(e),
-            Bogus::DtParse(e)   => MainError::BadDateTimeParse(e),
-            Bogus::IoError(e)   => MainError::FileIO(e),
+            SagaDocError::PathParse(e) => MainError::BadPathParse(e),
+            SagaDocError::PathFind(e)  => MainError::NodeNotFound(e),
+            SagaDocError::DtParse(e)   => MainError::BadDateTimeParse(e),
+            SagaDocError::IoError(e)   => MainError::FileIO(e),
+            SagaDocError::AddToEvent   => MainError::AddToEvent,
         }
     }
 }
 
-use std::num::ParseIntError;
-pub fn parse_to_int_path(query: &str) -> Result<Vec<usize>, ParseIntError> {
+pub fn parse_to_int_path(query: &str) -> Result<Vec<usize>, SagaDocError> {
     if query.trim().len() == 0 { return Ok(vec![]); }
     query
         .split(":")
         .map(|s|s.trim())
         .map(|s|s.parse::<usize>())
         .try_collect::<Vec<usize>>()
+        .map_err(|e|SagaDocError::PathParse(e))
 }
 
 #[cfg(test)]

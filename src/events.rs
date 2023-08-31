@@ -4,7 +4,9 @@ use std::str::FromStr;
 use chrono::{NaiveDateTime};
 use serde::{Serialize, Deserialize};
 
-use super::saga::Color;
+use super::MainError;
+use super::saga::{Color, SagaDocError};
+use super::edit::{EvalError, EvalResult};
 
 pub const FORMAT: &'static str = "%d/%m/%Y %H:%M";
 pub type Dt = NaiveDateTime;
@@ -42,14 +44,10 @@ pub struct Event {
 }
 
 /// Used to represent either one point in time, or a timespan.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Dates {
     start: Dt,
     end: Option<Dt>,
-}
-
-#[derive(Debug)]
-pub struct DateParseError {
 }
 
 pub struct Line {
@@ -67,6 +65,11 @@ pub struct PathFail {
     at: usize,
 }
 
+pub enum Query<'a> {
+    Node(&'a mut Node),
+    Event(&'a mut Event),
+}
+
 impl Node {
     /// Wraps a list of Nodes into one new Node. 
     pub fn from_vec(list: Vec<Node>) -> Node {
@@ -81,27 +84,26 @@ impl Node {
         }
     }
 
-    /// Searches for a node at the given address. If not found, returns the part of the path that
-    /// was successfully traversed.
-    pub fn find_mut<'a,'b>(&'a mut self, addr: &'b [usize]) -> Result<&'a mut Node, PathFail/* &'b [usize] */> {
-        println!("  > find_mut({:?})", addr);
-        let mut steps = 0_usize;        // Index into addr.
-        let mut ptr: &mut Node = self;  // Current node in the graph traversal.
-        while steps < addr.len() {
-            let index = addr[steps];
-            ptr = match ptr.value {
-                Value::List(ref mut list) => {  // Attempt to follow the path given.
-                    if index > list.len() {
-                        return Err(PathFail{path:Vec::from(addr), at:steps});
-                    }
-                    &mut list[index-1]  // User expects index origin of 1.
-                },
-                Value::Event(_) if steps == addr.len() => { return Ok(ptr); },
-                Value::Event(_) => { return Err(PathFail{path:Vec::from(addr), at:steps}); },
-            };
-            steps += 1;
+    /// Searches the node tree for the given address. If not found, returns the remainder of the
+    /// path that wasn't searched.
+    // TODO: Rework PathFail into something more useful.
+    pub fn query<'a>(&'a mut self, path: &[usize]) -> Result<Query<'a>, PathFail> {
+        if path.len() == 0 { return Ok(Query::Node(self)); }
+        match &mut self.value {
+            Value::List(ref mut list) => {
+                match path[0] <= list.len() {
+                    // Subtract 1 because the user expects an index-origin on 1.
+                    true => list[path[0]-1].query(&path[1..]),    // Recurse...
+                    false => Err(PathFail{path:path.to_vec(),at:path.len()}),
+                }
+            },
+            Value::Event(ref mut event) => {
+                match path.len() == 1 && path[0] == 1 {
+                    true => Ok(Query::Event(event)),
+                    false => Err(PathFail{path:path.to_vec(),at:path.len()}),
+                }
+            },
         }
-        Ok(ptr)
     }
 
     /// Produces an Iterator over all of the Events contained in Self.
@@ -151,7 +153,7 @@ impl Node {
     pub fn transform_iter(&self, offset: f64, scale: f64) -> Box<dyn Iterator<Item = (f64, f64)> + '_> {
         let value = (self.offset + offset, self.y_scale * scale);
         match &self.value {
-            Value::Event(_) => Box::new(std::iter::once(value)),
+            Value::Event(_) => Box::new(std::iter::once((offset, scale))),
             Value::List(vec) => Box::new(
                 vec .iter()
                     .map(move |node|node.transform_iter(value.0 * scale, value.1))
@@ -194,6 +196,34 @@ impl Node {
             .collect::<Vec<_>>()
     }
 
+    pub fn print(&self, depth: usize, verbose: bool) -> String {
+        let pad = padding("  ", depth);
+        let start = match self.name {
+            Some(ref name) => format!("{}Node: {}", pad, name),
+            None => format!("{}Node: (No name)", pad),
+        };
+        let mut lines = vec![
+            start,
+        ];
+        if verbose {
+            lines.push(format!("{}  Offset:  {}", pad, self.offset));
+            lines.push(format!("{}  Scaling: {}", pad, self.y_scale));
+            if let Some(line) = self.line {
+                lines.push(format!("{}  Line: {:?}", pad, line));
+            }
+        }
+        let children = match self.value {
+            Value::List(ref node_list) => node_list
+                .iter()
+                .map(|n|n.print(depth+1, verbose))
+                .collect::<Vec<String>>()
+                .join("\n"),
+            Value::Event(ref event) => event.print(&pad, verbose),
+        };
+        lines.push(children);
+        lines.join("\n")
+    }
+
     /// Returns the location of this Node's time range.
     fn location(&self, range: (i64, i64)) -> Option<(f64, f64)> {
         let (start,end) = range;
@@ -224,26 +254,33 @@ impl Node {
         }
     }
 
-    /// Builder method to set vertical offset.
-    fn with_offset(mut self, y: f64) -> Node {
-        self.offset = y;
-        self
+    pub fn get_value_mut(&mut self) -> &mut Value {
+        &mut self.value
+    }
+    
+    /// Sets the name of self.
+    pub fn set_name(&mut self, name: Option<&str>) {
+        self.name = name.map(|s|s.to_string());
     }
 
-    /// Builder method to set scaling of the certical offset.
-    fn with_y_scale(mut self, y: f64) -> Node {
-        self.y_scale = y;
-        self
+    /// Sets the vertical offset of the element in the render.
+    pub fn set_offset(&mut self, y: &f64) {
+        self.offset = *y;
     }
 
-    /// Builder method to set horizontal line with optional tick marks.
-    fn with_line(mut self, line: Option<f64>) -> Node {
+    /// Sets the scaling factor for the vertical offset.
+    pub fn set_scale(&mut self, y: &f64) {
+        self.y_scale = *y;
+    }
+
+    /// Sets the Line.
+    pub fn set_line(&mut self, line: Option<Option<f64>>) {
+        self.line = line.clone();
+    }
+
+    /// Builder Method. TODO: Probably don't need, except for building explicit struct in test.
+    pub fn with_line(mut self, line: Option<f64>) -> Self {
         self.line = Some(line);
-        self
-    }
-
-    fn without_line(mut self) -> Node {
-        self.line = None;
         self
     }
 }
@@ -256,6 +293,16 @@ impl Event {
             descriptions: vec![],
             datetime: dt,
         }
+    }
+
+    pub fn print(&self, padding: &str, verbose: bool) -> String {
+        let payload = format!(
+            "{}Event: {}, {:?}",
+            padding,
+            self.name,
+            self.datetime,
+        );
+        payload
     }
 
     /// Wrapper to convert this event into a node.
@@ -274,6 +321,12 @@ impl Event {
     /// Getter for name.
     pub fn name(&self) -> &str { &self.name }
 
+    /// Set name.
+    pub fn set_name(&mut self, new: &str) { self.name = new.to_string(); }
+
+    /// Set dates.
+    pub fn set_dates(&mut self, new: &Dates) { self.datetime = new.clone(); }
+
     /// Getter for dates.
     pub fn date_string(&self) -> String {
         format!("{}", self.datetime)
@@ -283,7 +336,6 @@ impl Event {
     pub fn with_desc(&mut self, desc: &str) {
         self.descriptions.push(desc.to_string());
     }
-
 
     /// Returns the location of an event within the context of a given range of timestamps.
     /// If self is within the range of timestamps then the output will be in [0,1].
@@ -295,6 +347,33 @@ impl Event {
             f(&self.datetime.start),
             self.datetime.end.as_ref().map(f),
         )
+    }
+
+    /// Adds the description to self.
+    pub fn add_description(&mut self, new: &str) {
+        self.descriptions.push(new.to_string());
+    }
+
+    /// Replaces the description at the given index.
+    pub fn change_description(&mut self, index: usize, new: &str) -> EvalResult {
+        match index < self.descriptions.len() {
+            true => {
+                self.descriptions[index] = new.to_string();
+                Ok(())
+            },
+            false => Err(EvalError::IndexError{index:index, len:self.descriptions.len()}),
+        }
+    }
+
+    /// Deletes the description at the given index.
+    pub fn delete_description(&mut self, index: usize) -> EvalResult {
+        match index < self.descriptions.len() {
+            true => {
+                self.descriptions.remove(index);
+                Ok(())
+            },
+            false => Err(EvalError::IndexError{index:index, len:self.descriptions.len()}),
+        }
     }
 }
 
@@ -356,9 +435,31 @@ impl FromStr for Dates {
     }
 }
 
+impl From<DtParseError> for SagaDocError {
+    fn from(dt_err: DtParseError) -> Self {
+        SagaDocError::DtParse(dt_err)
+    }
+}
+
+impl From<PathFail> for SagaDocError {
+    fn from(path_fail: PathFail) -> Self {
+        SagaDocError::PathFind(path_fail)
+    }
+}
+
+impl From<PathFail> for MainError {
+    fn from(path_fail: PathFail) -> Self {
+        MainError::NodeNotFound(path_fail)
+    }
+}
+
+fn padding(pad: &str, n: usize) -> String {
+    std::iter::once(pad).cycle().take(n).collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::events::{Dates,Dt, Event, Node};
+    use crate::events::{Dates,Dt, Event, Node, Query};
 
     #[test]
     fn test_date_parsing() {
@@ -389,37 +490,43 @@ mod tests {
         let range = test_node.range();
         let event_iter = test_node.iter().collect::<Vec<&Event>>();
         let node_iter  = test_node.iter_nodes().collect::<Vec<&Node>>();
-        let lines  = test_node.lines(range);
+        let lines  = test_node.lines(&range);
         assert_eq!(event_iter.len(), 7);
         assert_eq!(node_iter.len(), 10);
         assert_eq!(lines.len(), 2);
-        let ok_queries: Vec<Vec<usize>> = vec![
-            vec![],
-            vec![1],
-            vec![2],
-            vec![3],
-            vec![3,1],
-            vec![3,1,1],
-            vec![3,1,2],
-            vec![3,2],
-            vec![3,3],
-            vec![3,4],
+        let ok_queries: Vec<(Vec<usize>, bool)> = vec![
+            (vec![],  true),
+            (vec![1], true),
+            (vec![1,1], false),
+            (vec![2], true),
+            (vec![3], true),
+            (vec![3,1], true),
+            (vec![3,1,1], true),
+            (vec![3,1,2], true),
+            (vec![3,2], true),
+            (vec![3,3], true),
+            (vec![3,4], true),
         ];
-        for query in ok_queries.iter() {
+        for (query, is_node) in ok_queries.iter() {
             println!("Testing {:?}", query);
-            assert!(test_node.find_mut(&query[..]).is_ok());
+            let query = test_node.query(&query[..]).unwrap();
+            let tag = match query {
+                Query::Node(_) => true,
+                Query::Event(_) => false,
+            };
+            assert_eq!(*is_node, tag);
         }
         let err_queries: Vec<Vec<usize>> = vec![
-            vec![1,1],
-            vec![2,1],
-            vec![3,1,1,1],
-            vec![3,1,3],
-            vec![3,2,1],
-            vec![4],
+            vec![1,1,1],
+            vec![2,1,1],
+            vec![3,1,1,1,1],
+            vec![3,1,3,1],
+            vec![3,2,1,1],
+            vec![4,1],
         ];
         for query in err_queries.iter() {
             println!("Testing {:?}", query);
-            assert!(test_node.find_mut(&query[..]).is_err());
+            assert!(test_node.query(&query[..]).is_err());
         }
     }
 }

@@ -9,7 +9,7 @@ use std::{
 
 use super::{
     MainError,
-    events::{Dates, DtParseError, Event, Node, Query, Value},
+    events::{Dates, DtParseError, Event, Node, Query},
 };
 
 #[derive(Debug)]
@@ -124,12 +124,7 @@ impl Command {
             Command::DescAdd(_) |
             Command::DescSub(_) |
             Command::DescEdit(_,_) => {
-                match node.get_value_mut() {
-                    Value::Event(ref mut ev) => self.eval_event(ev),
-                    Value::List(_) => {
-                        Err(EvalError::NotApplicable(ValueType::Node, self.clone()))
-                    },
-                }
+                Err(EvalError::NotApplicable(ValueType::Node, self.clone()))
             },
         }
     }

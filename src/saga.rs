@@ -57,8 +57,6 @@ impl SagaDoc {
         }
     }
 
-    pub fn get_data(&self) -> &Node { &self.data }
-
     pub fn get_data_mut(&mut self) -> &mut Node { &mut self.data }
 
     pub fn draw(&self) -> Document {
@@ -68,7 +66,7 @@ impl SagaDoc {
         let range = self.data.range();
         if range.1 - range.0 == 0 { return Document::new(); }
         let slide_y: f64 = 0.1 * self.y;
-        let events = self.data.iter();
+        let events = self.data.iter_events();
         let depths = self.data.depth();
         let scales = self.data.transform_iter(0.0, 1f64);
         // Construct SVG document, we'll be pushing drawing commands into it.

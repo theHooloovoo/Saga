@@ -5,13 +5,21 @@
 //    - Use iced to turn into web app and embed into website.
 //      - Decide a UI layout.
 //      - Decide a way to display svg's in a live manner.
-//    - Maybe refactor Node to contain a vector of Values instead of Value
+//    - Make the rendered svg's look pretty.
+//      - Add support for styling.
+//    + Maybe refactor Node to contain a vector of Values instead of Value
 //      possibly being a list of Nodes? Current implementation just seems to
 //      add too much nesting.
-//    - Refactor the Saga::draw function into something that is more a
+//    - Refactor the Saga::draw function into something that is more of a
 //      composition of functions. Specifically, use fold() to build up a data
 //      path for the drawing strokes.
-//    - Add support for styling.
+//    - Add functionality to draw draw points as a graph whose primary axis
+//      goes is composed of dates.
+//      + Added `Graph` struct to `Node`.
+//      - Add graph manipulations to `Command`.
+//      - Add graph drawing to Saga::draw().
+//    - Add functionality to draw timeline tick marks.
+//    - Add text drawing functionality.
 //    - Add --verbose (-v) flag to print subcommand.
 
 use std::{num::ParseIntError, path::PathBuf};
@@ -25,8 +33,8 @@ mod saga;
 use saga::SagaDoc;
 mod edit;
 use edit::{Command as EvalCommand, EvalError, ParseError};
-mod app;
-use app::App;
+// mod app;
+// use app::App;
 
 pub type MainResult = Result<(), MainError>;
 
@@ -156,7 +164,7 @@ fn arg_edit(sub_matches: &ArgMatches) -> MainResult {
         .join(" ")
         .parse::<EvalCommand>()?;
     // Wrangle it into the correct form. 
-    let mut contents = open_file(fp)?;
+    let mut contents: String = open_file(fp)?;
     let mut saga: SagaDoc = saga_deserialize(&contents)?;
     let mut query = saga.get_data_mut().query(&query[..])?;
     // Commit changes to the document's data node.
@@ -170,9 +178,9 @@ fn arg_edit(sub_matches: &ArgMatches) -> MainResult {
 fn arg_print(sub_matches: &ArgMatches) -> MainResult {
     // Assume all of the paths are valid files that have been parsed correctly.
     open_saga_docs(sub_matches, "FILE")?.iter().for_each(|(fp, parsed_doc)|{
-        println!("\n{}", fp);
-        let s = parsed_doc.print(false);
-        println!("{}", s);
+        println!("\n{}\n{}", fp, parsed_doc.print(false));
+        // let s = parsed_doc.print(false);
+        // println!("{}", s);
     });
     Ok(())
 }

@@ -16,14 +16,14 @@ pub type DtParseError = chrono::format::ParseError;
 /// from something like a JSON or TOML file.
 #[derive(Serialize, Deserialize)]
 pub struct Node {
-    #[serde(flatten)]
-    value: Value,
+    children: Vec<Value>,
     name: Option<String>,
     style_override: Option<String>,
     color_override: Option<Color>,
     offset: f64,
     y_scale: f64,
     line: Option<Option<f64>>,  // (None|Draw Line|Draw Line with tick marks).
+    graphs: Vec<Graph>,
 }
 
 /// Internal enum used to store either more Nodes or leaf-like Events.
@@ -31,7 +31,7 @@ pub struct Node {
 #[serde(tag = "type", content = "next")]
 pub enum Value {
     Event(Event),
-    List(Vec<Node>),
+    Node(Node),
 }
 
 /// Main Struct for this program.
@@ -70,66 +70,84 @@ pub enum Query<'a> {
     Event(&'a mut Event),
 }
 
+#[derive(Serialize, Deserialize)]
+struct Graph {
+    data: Vec<(Dt, f64)>,
+    y_scale: f64,
+    color: Color,
+    draw_type: GraphType,
+}
+
+#[derive(Serialize, Deserialize)]
+enum GraphType {
+    Scatter,
+    Line,
+    LineArea,
+}
+
 impl Node {
     /// Wraps a list of Nodes into one new Node. 
-    pub fn from_vec(list: Vec<Node>) -> Node {
+    pub fn from_vec(list: Vec<Value>) -> Node {
         Node {
             name: None,
-            value: Value::List(list),
+            children: list
+                .into_iter()
+                // .map(|n|Value::Node(n))
+                .collect(),
             style_override: None,
             color_override: None,
             offset: 0f64,
             y_scale: 1f64,
             line: None,
+            graphs: vec![],
         }
     }
 
-    /// Searches the node tree for the given address. If not found, returns the remainder of the
-    /// path that wasn't searched.
+    pub fn into_value(self) -> Value {
+        Value::Node(self)
+    }
+
+    /// Searches the node tree for the given address. If not found, returns
+    /// the remainder of the path that wasn't searched.
     // TODO: Rework PathFail into something more useful.
     pub fn query<'a>(&'a mut self, path: &[usize]) -> Result<Query<'a>, PathFail> {
-        if path.len() == 0 { return Ok(Query::Node(self)); }
-        match &mut self.value {
-            Value::List(ref mut list) => {
-                match path[0] <= list.len() {
-                    // Subtract 1 because the user expects an index-origin on 1.
-                    true => list[path[0]-1].query(&path[1..]),    // Recurse...
-                    false => Err(PathFail{path:path.to_vec(),at:path.len()}),
-                }
-            },
-            Value::Event(ref mut event) => {
-                match path.len() == 1 && path[0] == 1 {
-                    true => Ok(Query::Event(event)),
-                    false => Err(PathFail{path:path.to_vec(),at:path.len()}),
-                }
-            },
+        println!("  - query({:?})", path);
+        if path.len() == 0 {
+            return Ok(Query::Node(self));
+        }
+        // Decrement by 1 because the user is expecting an index-origin of 1.
+        match self.children.get_mut(path[0]-1) {
+            Some(Value::Node(n)) => n.query(&path[1..]),
+            Some(Value::Event(e)) if path.len() == 1 => Ok(Query::Event(e)),
+            // TODO: Refactor Pathfail production.
+            Some(Value::Event(_)) => Err(PathFail{path:path.to_vec(),at:path.len()}),
+            None => Err(PathFail{path:path.to_vec(),at:path.len()}),
         }
     }
 
-    /// Produces an Iterator over all of the Events contained in Self.
+    /// Produces an Iterator over all of the `Node`s contained in `Self`.
     pub fn iter_nodes<'a>(&'a self) -> Box<dyn Iterator<Item=&'a Node> + 'a> {
+        println!("Called .iter_nodes()!");
         let this = Box::new(std::iter::once(self));
-        match &self.value {
-            Value::Event(_) => Box::new(std::iter::once(self)),
-            Value::List(vec) => {
-                let list = vec.iter()
-                    .map(|node|node.iter_nodes())
-                    .flatten();
-                Box::new(this.chain(list))
-            },
-        }
+        println!("  - Saw {} children.", self.children.len());
+        let kids = self.children.iter().filter_map(|value|{
+            match value {
+                Value::Node(node) => Some(node.iter_nodes()),
+                Value::Event(_) => None,
+            }
+        }).flatten();
+        Box::new(this.chain(kids))
     }
 
     /// Produces an Iterator over all of the Events contained in Self.
-    pub fn iter<'a>(&'a self) -> Box<dyn Iterator<Item=&'a Event> + 'a> {
-        match &self.value {
-            Value::Event(event) => Box::new(std::iter::once(event)),
-            Value::List(vec) => Box::new(
-                vec .iter()
-                    .map(|node|node.iter())
-                    .flatten()
-            ),
-        }
+    pub fn iter_events<'a>(&'a self) -> Box<dyn Iterator<Item=&'a Event> + 'a> {
+        let kids = self.children.iter().map(|value|{
+            match value {
+                Value::Node(node) => node.iter_events(),
+                Value::Event(event) => Box::new(std::iter::once(event)),
+            }
+        }).flatten();
+        Box::new(kids)
     }
 
     /// Produces an Iterator of depth values intended to be zipped with self.iter().
@@ -138,47 +156,51 @@ impl Node {
     }
 
     fn depth_iter(&self, depth: u32) -> Box<dyn Iterator<Item = u32> + '_> {
-        match &self.value {
-            // Events are stored in their own Node, so compensate by -1.
-            Value::Event(_) => Box::new(std::iter::once(depth-1)),
-            Value::List(vec) => Box::new(
-                vec .iter()
-                    .map(move |node|node.depth_iter(depth+1))
-                    .flatten()
-            ),
-        }
+        let this = Box::new(std::iter::once(depth));
+        let kids = self.children.iter().filter_map(move |value|{
+            match value {
+                Value::Node(node) => Some(node.depth_iter(depth+1)),
+                Value::Event(_) => None,
+            }
+        }).flatten();
+        Box::new(this.chain(kids))
     }
 
     /// Returns an Iterator over y-axis (Offset, Scaling) pairs.
     pub fn transform_iter(&self, offset: f64, scale: f64) -> Box<dyn Iterator<Item = (f64, f64)> + '_> {
-        let value = (self.offset + offset, self.y_scale * scale);
-        match &self.value {
-            Value::Event(_) => Box::new(std::iter::once((offset, scale))),
-            Value::List(vec) => Box::new(
-                vec .iter()
-                    .map(move |node|node.transform_iter(value.0 * scale, value.1))
-                    .flatten()
-            ),
-        }
+        let pair = (self.offset + offset, self.y_scale * scale);
+        let this = Box::new(std::iter::once((offset, scale)));
+        let kids = self.children.iter().filter_map(move |value|{
+            match value {
+                Value::Node(node) => {
+                    Some(node.transform_iter(pair.0 * scale, pair.1))
+                },
+                Value::Event(_) => None,
+            }
+        }).flatten();
+        Box::new(this.chain(kids))
     }
 
     /// Returns true if self doesn't contain any Events.
     pub fn is_empty(&self) -> bool {
-        self.iter().collect::<Vec<&Event>>().is_empty()
+        self.iter_events().collect::<Vec<&Event>>().is_empty()
     }
 
     /// Returns the timestamp set that contains all of the dates contained by self.
     pub fn range(&self) -> (i64, i64) {
-        use chrono::{MAX_DATETIME, MIN_DATETIME};
+        // use chrono::{MAX_DATETIME, MIN_DATETIME};
         let max_min = (
-            MAX_DATETIME.timestamp(),
-            MIN_DATETIME.timestamp(),
+            // MAX_DATETIME.timestamp(),
+            // MIN_DATETIME.timestamp(),
+            i64::MAX,
+            i64::MIN,
         );
-        self.iter()
+        self.iter_events()
             .map(|event|&event.datetime)
             .fold(max_min,|range,dt|dt.expand_range(range))
     }
 
+    /// Produces a vector that represents each drawn line in the `Node` structure.
     pub fn lines(&self, grand_range: &(i64, i64)) -> Vec<Line> {
         let iter = self.iter_nodes();
         let iter_trans = self.transform_iter(0.0, 1.0);
@@ -193,9 +215,10 @@ impl Node {
             }
         })  .filter(|opt|opt.is_some()) // Drop all Nones...
             .map(|opt|opt.unwrap())     // ...and retain only Ok's.
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>()        // TODO: refactor as filter_map().
     }
 
+    /// Produces a multiline, indented string that shows the underlying tree structure.
     pub fn print(&self, depth: usize, verbose: bool) -> String {
         let pad = padding("  ", depth);
         let start = match self.name {
@@ -212,15 +235,13 @@ impl Node {
                 lines.push(format!("{}  Line: {:?}", pad, line));
             }
         }
-        let children = match self.value {
-            Value::List(ref node_list) => node_list
-                .iter()
-                .map(|n|n.print(depth+1, verbose))
-                .collect::<Vec<String>>()
-                .join("\n"),
-            Value::Event(ref event) => event.print(&pad, verbose),
-        };
-        lines.push(children);
+        let mut kids = self.children.iter().map(|value|{
+            match value {
+                Value::Node(node)   => node.print(depth+1, verbose),
+                Value::Event(event) => event.print(&pad, verbose),
+            }
+        }).collect::<Vec<String>>();
+        lines.append(&mut kids);
         lines.join("\n")
     }
 
@@ -242,22 +263,9 @@ impl Node {
 
     /// Converts self.value in Value::List if not already and pushes value.
     pub fn push_event(&mut self, event: Event) {
-        match &mut self.value {
-            Value::Event(other) => {
-                let list = vec![
-                    other.clone().into_node(), 
-                    event.into_node()
-                ];
-                self.value = Value::List(list);
-            },
-            Value::List(list) => { list.push(event.into_node()); },
-        }
+        self.children.push(Value::Event(event));
     }
 
-    pub fn get_value_mut(&mut self) -> &mut Value {
-        &mut self.value
-    }
-    
     /// Sets the name of self.
     pub fn set_name(&mut self, name: Option<&str>) {
         self.name = name.map(|s|s.to_string());
@@ -296,26 +304,37 @@ impl Event {
     }
 
     pub fn print(&self, padding: &str, verbose: bool) -> String {
-        let payload = format!(
+        let start = format!(
             "{}Event: {}, {:?}",
             padding,
             self.name,
             self.datetime,
         );
-        payload
+        let mut lines = vec![start];
+        if verbose {
+            self.descriptions
+                .iter()
+                .map(|desc|format!("{}  - {}", padding, desc))
+                .for_each(|s|lines.push(s));
+        }
+        lines.join("\n")
     }
 
-    /// Wrapper to convert this event into a node.
-    pub fn into_node(self) -> Node {
+    /// Wrapper to convert this event into a `Value`.
+    pub fn into_value(self) -> Value {
+        Value::Event(self)
+        /*
         Node {
             name: None,
-            value: Value::Event(self),
+            children: vec![Value::Event(self)],
             style_override: None,
             color_override: None,
             offset: 0f64,
             y_scale: 1f64,
             line: None,
+            graphs: vec![],
         }
+        */
     }
 
     /// Getter for name.
@@ -459,7 +478,7 @@ fn padding(pad: &str, n: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::events::{Dates,Dt, Event, Node, Query};
+    use crate::events::{Dates, Event, Node, Query};
 
     #[test]
     fn test_date_parsing() {
@@ -475,40 +494,44 @@ mod tests {
     #[test]
     fn test_node_querying() {
         let mut test_node = Node::from_vec(vec![
-            Event::new("First Event",  "08/12/1997 0:0 - 26/12/1997 0:0".parse().unwrap()).into_node(),
-            Event::new("Second Event", "01/12/1997 0:0 - 09/12/1997 0:0".parse().unwrap()).into_node(),
+            Event::new("First Event",  "08/12/1997 0:0 - 26/12/1997 0:0".parse().unwrap()).into_value(),
+            Event::new("Second Event", "01/12/1997 0:0 - 09/12/1997 0:0".parse().unwrap()).into_value(),
             Node::from_vec(vec![
                 Node::from_vec(vec![
-                    Event::new("Third Event",  "03/12/1997 0:0 - 04/12/1997 0:0".parse().unwrap()).into_node(),
-                    Event::new("Fourth Event", "04/12/1997 0:0 - 06/12/1997 0:0".parse().unwrap()).into_node(),
-                ]),
-                Event::new("Fifth Event",  "03/12/1997 0:0 - 04/12/1997 0:0".parse().unwrap()).into_node(),
-                Event::new("Sixth Event", "04/12/1997 0:0 - 06/12/1997 0:0".parse().unwrap()).into_node(),
-                Event::new("Seventh Event",  "07/12/1997 0:0 - 09/12/1997 0:0".parse().unwrap()).into_node(),
-            ]).with_line(Some(5.0)),
+                    Event::new("Third Event",  "03/12/1997 0:0 - 04/12/1997 0:0".parse().unwrap()).into_value(),
+                    Event::new("Fourth Event", "04/12/1997 0:0 - 06/12/1997 0:0".parse().unwrap()).into_value(),
+                ]).into_value(),
+                Event::new("Fifth Event",  "03/12/1997 0:0 - 04/12/1997 0:0".parse().unwrap()).into_value(),
+                Event::new("Sixth Event", "04/12/1997 0:0 - 06/12/1997 0:0".parse().unwrap()).into_value(),
+                Event::new("Seventh Event",  "07/12/1997 0:0 - 09/12/1997 0:0".parse().unwrap()).into_value(),
+            ]).with_line(Some(5.0)).into_value(),
         ]).with_line(None);
+        println!("{}\n", test_node.print(0, false));
         let range = test_node.range();
-        let event_iter = test_node.iter().collect::<Vec<&Event>>();
+        let event_iter = test_node.iter_events().collect::<Vec<&Event>>();
         let node_iter  = test_node.iter_nodes().collect::<Vec<&Node>>();
+        println!("---");
         let lines  = test_node.lines(&range);
+        println!("Checking iter...");
         assert_eq!(event_iter.len(), 7);
-        assert_eq!(node_iter.len(), 10);
+        println!("Checking iter_nodes...");
+        assert_eq!(node_iter.len(), 3);
+        println!("Checking lines.len()...");
         assert_eq!(lines.len(), 2);
         let ok_queries: Vec<(Vec<usize>, bool)> = vec![
             (vec![],  true),
-            (vec![1], true),
-            (vec![1,1], false),
-            (vec![2], true),
+            (vec![1], false),
+            (vec![2], false),
             (vec![3], true),
             (vec![3,1], true),
-            (vec![3,1,1], true),
-            (vec![3,1,2], true),
-            (vec![3,2], true),
-            (vec![3,3], true),
-            (vec![3,4], true),
+            (vec![3,1,1], false),
+            (vec![3,1,2], false),
+            (vec![3,2], false),
+            (vec![3,3], false),
+            (vec![3,4], false),
         ];
         for (query, is_node) in ok_queries.iter() {
-            println!("Testing {:?}", query);
+            println!("Testing Ok case: {:?}", query);
             let query = test_node.query(&query[..]).unwrap();
             let tag = match query {
                 Query::Node(_) => true,
@@ -517,15 +540,16 @@ mod tests {
             assert_eq!(*is_node, tag);
         }
         let err_queries: Vec<Vec<usize>> = vec![
-            vec![1,1,1],
+            vec![4],            // Index out of bounds on root.
+            vec![1,1],          // Event doesn't have child.
             vec![2,1,1],
+            vec![3,1,1,1],
             vec![3,1,1,1,1],
             vec![3,1,3,1],
             vec![3,2,1,1],
-            vec![4,1],
         ];
         for query in err_queries.iter() {
-            println!("Testing {:?}", query);
+            println!("Testing Err case: {:?}", query);
             assert!(test_node.query(&query[..]).is_err());
         }
     }

@@ -1,26 +1,37 @@
 
 #![feature(iterator_try_collect)]
 
-//  Project TODO's
-//    - Use iced to turn into web app and embed into website.
-//      - Decide a UI layout.
-//      - Decide a way to display svg's in a live manner.
-//    - Make the rendered svg's look pretty.
-//      - Add support for styling.
-//    + Maybe refactor Node to contain a vector of Values instead of Value
-//      possibly being a list of Nodes? Current implementation just seems to
-//      add too much nesting.
-//    - Refactor the Saga::draw function into something that is more of a
-//      composition of functions. Specifically, use fold() to build up a data
-//      path for the drawing strokes.
-//    - Add functionality to draw draw points as a graph whose primary axis
-//      goes is composed of dates.
-//      + Added `Graph` struct to `Node`.
-//      - Add graph manipulations to `Command`.
-//      - Add graph drawing to Saga::draw().
-//    - Add functionality to draw timeline tick marks.
-//    - Add text drawing functionality.
-//    - Add --verbose (-v) flag to print subcommand.
+/*
+ * Project TODO's
+ *   - Impl Error for my error types, or use the thiserror crate.
+ *   - Refactor open_saga_docs to return an iterator of Results, thus allowing the program to
+ *     continue if a file wasn't found. Also probably ditching nightly feature
+ *     `iterator_try_collect`.
+ *   - arg_node & arg_add are medium sized functions differing in only 1 line of code. Refactor
+ *     them (possibly into higher order functions).
+ *   - Add --verbose (-v) flag to print subcommand.
+ *   - Add helpful message when using `saga new`.
+ *   + Add functionality to add nodes.
+ *   - Use iced to turn into web app and embed into website.
+ *     - Decide a UI layout.
+ *     - Decide a way to display svg's in a live manner.
+ *   - Make the rendered svg's look pretty.
+ *     - Add support for styling.
+ *   + Maybe refactor Node to contain a vector of Values instead of Value
+ *     possibly being a list of Nodes? Current implementation just seems to
+ *     add too much nesting.
+ *   - Refactor the Saga::draw function into something that is more of a
+ *     composition of functions. Specifically, use fold() to build up a data
+ *     path for the drawing strokes.
+ *   - Add functionality to draw draw points as a graph whose primary axis
+ *     is composed of dates.
+ *     + Added `Graph` struct to `Node`.
+ *       - Move `Graph` to graph.rs as to not clutter events.rs.
+ *     - Add graph manipulations to `Command`.
+ *     - Add graph drawing to Saga::draw().
+ *   - Add functionality to draw timeline tick marks.
+ *   - Add text drawing functionality.
+ */
 
 use std::{num::ParseIntError, path::PathBuf};
 
@@ -59,6 +70,7 @@ fn main() -> MainResult {
     match matches.subcommand() {
         Some(("new",     sub_matches)) => arg_new(sub_matches),
         Some(("add",     sub_matches)) => arg_add(sub_matches),
+        Some(("node",    sub_matches)) => arg_node(sub_matches),
         Some(("edit",    sub_matches)) => arg_edit(sub_matches),
         Some(("grep",    _          )) => todo!("Feature Coming Soon!"),
         Some(("print",   sub_matches)) => arg_print(sub_matches),
@@ -66,22 +78,29 @@ fn main() -> MainResult {
         Some(("render",  sub_matches)) => arg_render(sub_matches),
         Some(("editor",  _          )) => todo!("Feature Coming Soon!"),
         Some(("web_app", _          )) => todo!("Feature Coming Soon!"),
-        _ => { unreachable!(); },
+        None => { todo!("We'll launch the window at some point!"); },
+        _ => { unreachable!("Clap should guarantee that this doesn't happen."); },
     }
 }
 
 fn build_arg_parser() -> ClapCommand {
     command!()
-        .subcommand_required(true)
-        .arg_required_else_help(true)
+        // .subcommand_required(true)
+        // .arg_required_else_help(true)
         .subcommand(
             ClapCommand::new("new")
-                .about("Create a new Saga document, saved at the given FILE")
+                .about("<FILE> Create a new Saga document.")
                 .arg(arg!(<FILE>)),
         )
         .subcommand(
+            ClapCommand::new("node")
+                .about("Adds a node to the given file at the listed location.")
+                .arg(arg!(<FILE>))
+                .arg(arg!(<INT_LIST>)),
+        )
+        .subcommand(
             ClapCommand::new("add")
-                .about("Adds and event to the given file at the listed location.")
+                .about("Adds an event to the given file at the listed location.")
                 .arg(arg!(<FILE>))
                 .arg(arg!(<INT_LIST>)),
         )
@@ -128,6 +147,25 @@ fn arg_new(sub_matches: &ArgMatches) -> MainResult {
     let saga: SagaDoc = SagaDoc::blank();
     let contents = saga_serialize(&saga)?;
     // Then write the changes to the disk.
+    write_to_file(fp, &contents)?;
+    println!("Successfully made {}", fp);
+    Ok(())
+}
+
+fn arg_node(sub_matches: &ArgMatches) -> MainResult {
+    // Extract the raw data.
+    let query: &str = sub_matches.get_one::<String>("INT_LIST")
+        .expect("Clap guarantees that this should be here.");
+    let fp: &str = sub_matches.get_one::<String>("FILE")
+        .expect("Clap guarantees that this should be here.");
+    // Wrangle it into the correct form. 
+    let mut contents = open_file(fp)?;
+    let mut saga: SagaDoc = saga_deserialize(&contents)?;
+    // Do our editting.
+    saga.add_node(&query)?;
+    // Then write the changes to the disk.
+    contents.clear();
+    contents = saga_serialize(&saga)?;
     write_to_file(fp, &contents)?;
     Ok(())
 }

@@ -28,7 +28,7 @@ pub struct Node {
 
 /// Internal enum used to store either more Nodes or leaf-like Events.
 #[derive(Serialize, Deserialize)]
-#[serde(tag = "type", content = "next")]
+#[serde(tag = "type")]
 pub enum Value {
     Event(Event),
     Node(Node),
@@ -50,6 +50,8 @@ pub struct Dates {
     end: Option<Dt>,
 }
 
+/// Represents the setting to draw a timeline spanning all
+/// the `Event`s in `self`s parent `Node`.
 pub struct Line {
     pub start: f64,
     pub end: f64,
@@ -86,6 +88,20 @@ enum GraphType {
 }
 
 impl Node {
+    /// Make a new `Node`, with default values for everyting except name and children.
+    pub fn new(name: Option<String>, children: Vec<Value>) -> Node {
+        Node {
+            name: name,
+            children: children,
+            style_override: None,
+            color_override: None,
+            offset: 0f64,
+            y_scale: 1f64,
+            line: None,
+            graphs: vec![],
+        }
+    }
+
     /// Wraps a list of Nodes into one new Node. 
     pub fn from_vec(list: Vec<Value>) -> Node {
         Node {
@@ -111,7 +127,6 @@ impl Node {
     /// the remainder of the path that wasn't searched.
     // TODO: Rework PathFail into something more useful.
     pub fn query<'a>(&'a mut self, path: &[usize]) -> Result<Query<'a>, PathFail> {
-        println!("  - query({:?})", path);
         if path.len() == 0 {
             return Ok(Query::Node(self));
         }
@@ -127,9 +142,7 @@ impl Node {
 
     /// Produces an Iterator over all of the `Node`s contained in `Self`.
     pub fn iter_nodes<'a>(&'a self) -> Box<dyn Iterator<Item=&'a Node> + 'a> {
-        println!("Called .iter_nodes()!");
         let this = Box::new(std::iter::once(self));
-        println!("  - Saw {} children.", self.children.len());
         let kids = self.children.iter().filter_map(|value|{
             match value {
                 Value::Node(node) => Some(node.iter_nodes()),
@@ -151,11 +164,11 @@ impl Node {
     }
 
     /// Produces an Iterator of depth values intended to be zipped with self.iter().
-    pub fn depth(&self) -> Box<dyn Iterator<Item = u32> + '_> {
+    pub fn depth(&self) -> Box<dyn Iterator<Item = usize> + '_> {
         self.depth_iter(0)
     }
 
-    fn depth_iter(&self, depth: u32) -> Box<dyn Iterator<Item = u32> + '_> {
+    fn depth_iter(&self, depth: usize) -> Box<dyn Iterator<Item = usize> + '_> {
         let this = Box::new(std::iter::once(depth));
         let kids = self.children.iter().filter_map(move |value|{
             match value {
@@ -222,8 +235,8 @@ impl Node {
     pub fn print(&self, depth: usize, verbose: bool) -> String {
         let pad = padding("  ", depth);
         let start = match self.name {
-            Some(ref name) => format!("{}Node: {}", pad, name),
-            None => format!("{}Node: (No name)", pad),
+            Some(ref name) => format!("{}<Node> {}", pad, name),
+            None => format!("{}<Node> (No name)", pad),
         };
         let mut lines = vec![
             start,
@@ -238,7 +251,7 @@ impl Node {
         let mut kids = self.children.iter().map(|value|{
             match value {
                 Value::Node(node)   => node.print(depth+1, verbose),
-                Value::Event(event) => event.print(&pad, verbose),
+                Value::Event(event) => event.print(depth+1, verbose),
             }
         }).collect::<Vec<String>>();
         lines.append(&mut kids);
@@ -261,9 +274,9 @@ impl Node {
         }
     }
 
-    /// Converts self.value in Value::List if not already and pushes value.
-    pub fn push_event(&mut self, event: Event) {
-        self.children.push(Value::Event(event));
+    /// Addends `value` to the `self.children`.
+    pub fn push(&mut self, value: Value) {
+        self.children.push(value);
     }
 
     /// Sets the name of self.
@@ -286,7 +299,7 @@ impl Node {
         self.line = line.clone();
     }
 
-    /// Builder Method. TODO: Probably don't need, except for building explicit struct in test.
+    /// Builder Method. TODO: Probably don't need, except for building explicit structs in test.
     pub fn with_line(mut self, line: Option<f64>) -> Self {
         self.line = Some(line);
         self
@@ -303,18 +316,19 @@ impl Event {
         }
     }
 
-    pub fn print(&self, padding: &str, verbose: bool) -> String {
+    pub fn print(&self, depth: usize, verbose: bool) -> String {
+        let pad = padding("  ", depth);
         let start = format!(
-            "{}Event: {}, {:?}",
-            padding,
+            "{}<Event> {}, [{}]",
+            pad,
             self.name,
-            self.datetime,
+            self.datetime.to_string(),
         );
         let mut lines = vec![start];
         if verbose {
             self.descriptions
                 .iter()
-                .map(|desc|format!("{}  - {}", padding, desc))
+                .map(|desc|format!("{}  - {}", pad, desc))
                 .for_each(|s|lines.push(s));
         }
         lines.join("\n")
@@ -323,18 +337,6 @@ impl Event {
     /// Wrapper to convert this event into a `Value`.
     pub fn into_value(self) -> Value {
         Value::Event(self)
-        /*
-        Node {
-            name: None,
-            children: vec![Value::Event(self)],
-            style_override: None,
-            color_override: None,
-            offset: 0f64,
-            y_scale: 1f64,
-            line: None,
-            graphs: vec![],
-        }
-        */
     }
 
     /// Getter for name.

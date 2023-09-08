@@ -59,9 +59,10 @@ pub enum Command {
     DateEdit(Dates),
     // NodeAdd(NodePath, Box<Node>),
     // NodeSub(usize),
-    // Copy(NodePath),
-    // Cut(NodePath),
-    // Paste(NodePath),
+    // Copy(NodePath),              // from <selected@path> and push into <register>,
+    // Cut(NodePath),               // from <selected@path> and push into <register>.
+    // Paste(NodePath, NodePath),   // from <reg[index]> to <selected@path>.
+    // Move(NodePath, NodePath),    // from <reg[index]> to <reg[index]>.
 }
 
 impl Command {
